@@ -56,7 +56,8 @@ char ssd1306_DrawCharFast(char ch, FontGLCD_t* Font);
 char ssd1306_DrawCharCurs(char ch, FontGLCD_t* Font, uint8_t isCursored);
 char ssd1306_DrawString(const char* str, FontGLCD_t* Font, uint32_t CursorPos);
 int ssd1306_DrawCharUpd(char ch, FontGLCD_t* Font);
-int ssd1306_FlipMirror(uint8_t Mirror_X, uint8_t Mirror_Y);
+int ssd1306_SetMirror(uint8_t Mirror_X, uint8_t Mirror_Y);
+int ssd1306_SetContrast(uint8_t Contrast);
 
 #ifdef __cplusplus
 }

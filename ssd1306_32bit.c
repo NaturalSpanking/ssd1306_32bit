@@ -288,14 +288,26 @@ int ssd1306_DrawCharUpd(char ch, FontGLCD_t* Font) {
  * @retval 0 в случае успеха, ERR если ошибка I2C
  */
 
-int ssd1306_FlipMirror(uint8_t Mirror_X, uint8_t Mirror_Y) {
-	int ret = 0;
+int ssd1306_SetMirror(uint8_t Mirror_X, uint8_t Mirror_Y) {
 	uint8_t command[] = { 0xA0, 0xC0 };
 	if (Mirror_X)
 		command[0] = 0xA1; // 0xA0 - normal X, 0xA1 - mirror X
 	if (Mirror_Y)
 		command[1] = 0xC8; // 0xC0 - normal Y, 0xC8 - mirror Y
-	ret += init_config->ssd1603_MemWrite(init_config->i2c_Address,
-			SSD1306_I2C_COMMAND, command, 2);
-	return ret;
+	return init_config->ssd1603_MemWrite(init_config->i2c_Address,
+	SSD1306_I2C_COMMAND, command, 2);;
+}
+
+/**
+ * @brief Установка контрастности
+ * @note Задает контрастность дисплея от 0 до 255
+ * @param Контрастность
+ * @retval 0 в случае успеха, ERR если ошибка I2C
+ */
+
+int ssd1306_SetContrast(uint8_t Contrast) {
+	uint8_t command[] = { 0x81, 0xFF };
+	command[1] = Contrast;
+	return init_config->ssd1603_MemWrite(init_config->i2c_Address,
+	SSD1306_I2C_COMMAND, command, 2);
 }
