@@ -13,8 +13,6 @@
 #ifndef FONTS_GLCD_H_
 #define FONTS_GLCD_H_
 
-//#include "stm32f0xx_hal.h"
-
 typedef struct {
 	const unsigned char FontWidth;		// ширина шрифта
 	const unsigned char FontHeight;		// высота шрифта
@@ -23,6 +21,8 @@ typedef struct {
 	const unsigned char *data_regular;	// указатель на массив основных символов
 	const unsigned char *data_ru;		// указатель на массив русских символов
 } FontGLCD_t;
+
+// Тут перечислить нужные шрифты
 
 extern FontGLCD_t Courier_New_Bold16x26;
 extern FontGLCD_t Consolas9x16;

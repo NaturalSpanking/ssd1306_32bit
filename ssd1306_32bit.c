@@ -7,14 +7,12 @@
 
 #include "ssd1306_32bit.h"
 
-static I2C_HandleTypeDef *i2c_handle;
 static int current_x;
 static int current_y;
 
 static DispColumn_t display_buffer[SSD1306_WIDTH];
 
-static uint16_t i2c_bus_address;
-
+InitConfig_t *init_config;
 PrintConfig_t *print_config;
 
 const uint8_t init_sequence[] = {	// Initialization Sequence
@@ -49,25 +47,23 @@ const uint8_t init_sequence[] = {	// Initialization Sequence
 /**
  * @brief Инициализация дисплея
  * @note I2C должен быть настроен и готов к передаче данных
- * @param Указатель на используемый I2C
- * @param Адрес дисплея на шине
- * @param Указатель на структуру конфигурации печати
+ * @param Указатель на структуру инициализации
  * @retval Статус операции записи массива конфигурации в дисплей
  */
-HAL_StatusTypeDef ssd1306_Init(I2C_HandleTypeDef *hi2c, uint16_t i2c_address, PrintConfig_t *PrintConfig) {
-	i2c_bus_address = SSD1306_I2C_ADDR_DEFAULT;
-	if (i2c_address) {
-		i2c_bus_address = i2c_address;
+int ssd1306_Init(InitConfig_t *InitConfig) {
+	if (InitConfig == 0) {
+		return -1;
 	}
-	if (hi2c->State != HAL_I2C_STATE_READY)
-		return HAL_ERROR;
-	i2c_handle = hi2c;
-	print_config = PrintConfig;
+	init_config = InitConfig;
+	if (init_config->i2c_Address == 0)
+		init_config->i2c_Address = SSD1306_I2C_ADDR_DEFAULT;
+
+	print_config = init_config->PrintConfig;
 	current_x = 0;
 	current_y = 0;
-HAL_Delay(100);
-	return HAL_I2C_Mem_Write(i2c_handle, i2c_bus_address, SSD1306_I2C_COMMAND, 1, (uint8_t*) init_sequence,
-			sizeof(init_sequence), 100);
+	return init_config->ssd1603_MemWrite(init_config->i2c_Address,
+			SSD1306_I2C_COMMAND, (uint8_t*) init_sequence,
+			sizeof(init_sequence));
 }
 
 /**
@@ -76,9 +72,11 @@ HAL_Delay(100);
  * @param
  * @retval Статус операции записи буфера в дисплей
  */
-HAL_StatusTypeDef ssd1306_UpdateScreen() {
-	return HAL_I2C_Mem_Write(i2c_handle, i2c_bus_address, SSD1306_I2C_DATA, 1, (uint8_t*) display_buffer,
-	sizeof(display_buffer),100);
+int ssd1306_UpdateScreen() {
+	return init_config->ssd1603_MemWrite(init_config->i2c_Address,
+			SSD1306_I2C_DATA, (uint8_t*) display_buffer, sizeof(display_buffer));
+//	return HAL_I2C_Mem_Write(i2c_handle, i2c_bus_address, SSD1306_I2C_DATA, 1, (uint8_t*) display_buffer,
+//	sizeof(display_buffer),100);
 }
 
 /**
@@ -131,14 +129,15 @@ void ssd1306_DrawPixel(int x, int y) {
  * @retval Выводимый символ в случае успеха, 0 если не хватило ширины дисплея
  */
 char ssd1306_DrawCharFast(char ch, FontGLCD_t* Font) {	// быстрая функция
-	DispColumn_t char_column; 											// столбец символа
-	int bytes_per_column = Font->FontHeight / 8 + (Font->FontHeight % 8 ? 1 : 0); // количество байт на 1 столбец символа
-	int bytes_per_char = Font->FontWidth * bytes_per_column + 1;	// количество байт на символ
-	int char_index;												// индекс символа в массиве шрифта
+	DispColumn_t char_column; 								// столбец символа
+	int bytes_per_column = Font->FontHeight / 8
+			+ (Font->FontHeight % 8 ? 1 : 0); // количество байт на 1 столбец символа
+	int bytes_per_char = Font->FontWidth * bytes_per_column + 1;// количество байт на символ
+	int char_index;							// индекс символа в массиве шрифта
 	const uint8_t* font_table;
 	if (ch >= 0xC0) {		//проверка языка
 		font_table = Font->data_ru;
-		char_index = (ch - 0xC0) * bytes_per_char;	// индекс символа в массиве шрифтов
+		char_index = (ch - 0xC0) * bytes_per_char;// индекс символа в массиве шрифтов
 	} else {
 		font_table = Font->data_regular;
 		char_index = (ch - Font->TableOffset) * bytes_per_char;	// индекс символа в массиве шрифтов
@@ -146,7 +145,7 @@ char ssd1306_DrawCharFast(char ch, FontGLCD_t* Font) {	// быстрая функция
 	int char_width = font_table[char_index];	// количество столбцов символа
 
 	for (int i = 0, j = 1; i < char_width; i++, j += bytes_per_column) { // бежим по столбцам
-		if (current_x + i >= SSD1306_WIDTH) {		// проверка на превышение ширины дисплея
+		if (current_x + i >= SSD1306_WIDTH) {// проверка на превышение ширины дисплея
 			return 0;
 		}
 		char_column = 0LL;
@@ -159,7 +158,9 @@ char ssd1306_DrawCharFast(char ch, FontGLCD_t* Font) {	// быстрая функция
 			display_buffer[current_x + i] &= ~(char_column << current_y);
 		}
 	}
-	current_x += Font->isMono ? Font->FontWidth : (char_width + print_config->ExtraSpace); // расстояние между символами
+	current_x +=
+			Font->isMono ?
+					Font->FontWidth : (char_width + print_config->ExtraSpace); // расстояние между символами
 	return ch;
 }
 
@@ -172,8 +173,9 @@ char ssd1306_DrawCharFast(char ch, FontGLCD_t* Font) {	// быстрая функция
  * @retval Выводимый символ в случае успеха, 0 если не хватило ширины дисплея
  */
 char ssd1306_DrawCharCurs(char ch, FontGLCD_t* Font, uint8_t isCursored) {
-	int bytes_per_column = Font->FontHeight / 8 + (Font->FontHeight % 8 ? 1 : 0); // количество байт на 1 столбец символа
-	int bytes_per_char = Font->FontWidth * bytes_per_column + 1;					// количество байт на символ
+	int bytes_per_column = Font->FontHeight / 8
+			+ (Font->FontHeight % 8 ? 1 : 0); // количество байт на 1 столбец символа
+	int bytes_per_char = Font->FontWidth * bytes_per_column + 1;// количество байт на символ
 	int char_index;						// индекс символа в массиве шрифта
 
 	const uint8_t* font_table;
@@ -189,7 +191,8 @@ char ssd1306_DrawCharCurs(char ch, FontGLCD_t* Font, uint8_t isCursored) {
 	DispColumn_t cursor_mask = 0LL;	// маска курсора
 	switch (print_config->CursorType) { // заполнение столбца курсора
 	case 2:
-		cursor_mask = (~(0x0F << (Font->FontHeight - 4))) | (~0LL << (Font->FontHeight));
+		cursor_mask = (~(0x0F << (Font->FontHeight - 4)))
+				| (~0LL << (Font->FontHeight));
 		break;
 	case 1:
 		cursor_mask = ~0LL << (Font->FontHeight);
@@ -197,19 +200,19 @@ char ssd1306_DrawCharCurs(char ch, FontGLCD_t* Font, uint8_t isCursored) {
 	}
 
 	DispColumn_t transp_mask = 0LL;		// маска фона
-	if (!print_config->Transparent){	// если не прозрачный - подчищаем
+	if (!print_config->Transparent) {	// если не прозрачный - подчищаем
 		transp_mask = ~0LL;
-		transp_mask >>= (SSD1306_HEIGHT-Font->FontHeight);
+		transp_mask >>= (SSD1306_HEIGHT - Font->FontHeight);
 		transp_mask <<= current_y;
 	}
 
 	DispColumn_t char_column; 			// столбец символа
-	for (int i = 0, j = 1; i < char_width; i++, j += bytes_per_column) {	// бежим по столбцам
-		if (current_x + i >= SSD1306_WIDTH) {				// проверка на превышение ширины дисплея
+	for (int i = 0, j = 1; i < char_width; i++, j += bytes_per_column) {// бежим по столбцам
+		if (current_x + i >= SSD1306_WIDTH) {// проверка на превышение ширины дисплея
 			return 0;
 		}
 		char_column = 0LL;
-		for (int k = 0; k < bytes_per_column; k++) { 		// заполнение столбца байтами шрифта
+		for (int k = 0; k < bytes_per_column; k++) { // заполнение столбца байтами шрифта
 			char_column |= font_table[char_index + j + k] << (8 * k);
 		}
 
@@ -219,14 +222,16 @@ char ssd1306_DrawCharCurs(char ch, FontGLCD_t* Font, uint8_t isCursored) {
 		}
 
 		if (print_config->Color) {		// вывод столбца в буфер
-			display_buffer[current_x + i] &=~transp_mask;
+			display_buffer[current_x + i] &= ~transp_mask;
 			display_buffer[current_x + i] |= char_column << current_y;
 		} else {
-			display_buffer[current_x + i] |=transp_mask;
+			display_buffer[current_x + i] |= transp_mask;
 			display_buffer[current_x + i] &= ~(char_column << current_y);
 		}
 	}
-	current_x += Font->isMono ? Font->FontWidth : (char_width + print_config->ExtraSpace); // расстояние между символами
+	current_x +=
+			Font->isMono ?
+					Font->FontWidth : (char_width + print_config->ExtraSpace); // расстояние между символами
 	return ch;
 }
 
@@ -253,22 +258,25 @@ char ssd1306_DrawString(const char* str, FontGLCD_t* Font, uint32_t CursorPos) {
  * @note Дисплей обновляется
  * @param Выводимый символ
  * @param Указатель на используемый шрифт
- * @retval HAL_OK в случае успеха, ERR если ошибка I2C
+ * @retval 0 в случае успеха, ERR если ошибка I2C
  */
 
-HAL_StatusTypeDef ssd1306_DrawCharUpd(char ch, FontGLCD_t* Font) {
-	HAL_StatusTypeDef ret = HAL_OK;
+int ssd1306_DrawCharUpd(char ch, FontGLCD_t* Font) {
+	int ret = 0;
 	uint8_t command[] = { 0x21, 0x00, SSD1306_WIDTH - 1 };
 	command[1] = current_x;		// запоминаем начальный столбец
 	ssd1306_DrawCharCurs(ch, Font, 0);	// выводим в буфер
 	command[2] = current_x;		//запоминаем конечный столбец
-	ret += HAL_I2C_Mem_Write(i2c_handle, i2c_bus_address, SSD1306_I2C_COMMAND, 1, command, 3, 100); // ставим указатель на начальный столбец
-	ret += HAL_I2C_Mem_Write(i2c_handle, i2c_bus_address, SSD1306_I2C_DATA, 1, // отображаем кол-во столбцов
+	ret += init_config->ssd1603_MemWrite(init_config->i2c_Address,
+			SSD1306_I2C_COMMAND, command, 3); // ставим указатель на начальный столбец
+	ret += init_config->ssd1603_MemWrite(init_config->i2c_Address,
+			SSD1306_I2C_DATA,  // отображаем кол-во столбцов
 			(uint8_t*) display_buffer + command[1] * sizeof(DispColumn_t),
-			(command[2] - command[1]) * sizeof(DispColumn_t), 100);
+			(command[2] - command[1]) * sizeof(DispColumn_t));
 	command[1] = 0x00;
 	command[2] = SSD1306_WIDTH - 1; // обнуляем
-	ret += HAL_I2C_Mem_Write(i2c_handle, i2c_bus_address, SSD1306_I2C_COMMAND, 1, command, 3, 100); // ставим указатель на начало
+	ret += init_config->ssd1603_MemWrite(init_config->i2c_Address,
+			SSD1306_I2C_COMMAND, command, 3); // ставим указатель на начало
 	return ret;
 }
 
@@ -277,14 +285,17 @@ HAL_StatusTypeDef ssd1306_DrawCharUpd(char ch, FontGLCD_t* Font) {
  * @note Отражение по двум осям даст переворот
  * @param Отразить X
  * @param Отразить Y
- * @retval HAL_OK в случае успеха, ERR если ошибка I2C
+ * @retval 0 в случае успеха, ERR если ошибка I2C
  */
 
-HAL_StatusTypeDef ssd1306_FlipMirror(uint8_t Mirror_X, uint8_t Mirror_Y){
-	HAL_StatusTypeDef ret = HAL_OK;
-	uint8_t command[] = { 0xA0, 0xC0};
-	if(Mirror_X) command[0]=0xA1; // 0xA0 - normal X, 0xA1 - mirror X
-	if(Mirror_Y) command[1]=0xC8; // 0xC0 - normal Y, 0xC8 - mirror Y
-	ret += HAL_I2C_Mem_Write(i2c_handle, i2c_bus_address, SSD1306_I2C_COMMAND, 1, command, 2, 100);
+int ssd1306_FlipMirror(uint8_t Mirror_X, uint8_t Mirror_Y) {
+	int ret = 0;
+	uint8_t command[] = { 0xA0, 0xC0 };
+	if (Mirror_X)
+		command[0] = 0xA1; // 0xA0 - normal X, 0xA1 - mirror X
+	if (Mirror_Y)
+		command[1] = 0xC8; // 0xC0 - normal Y, 0xC8 - mirror Y
+	ret += init_config->ssd1603_MemWrite(init_config->i2c_Address,
+			SSD1306_I2C_COMMAND, command, 2);
 	return ret;
 }
